@@ -113,7 +113,7 @@ Splitting into microservices on day one, before you have load data, is the singl
 ### 1.6 Tech stack (confirming what you already have in mind)
 
 - **Backend:** Python 3.11, FastAPI, SQLAlchemy + Alembic, Pydantic v2
-- **Agents:** LangGraph, provider-agnostic LLM client (start with one provider wired end-to-end, add routing later)
+- **Agents:** LangGraph, `LLMProvider` adapter with **OpenRouter as the primary/base router** (one API, model-agnostic — lets you switch between Claude/GPT/Gemini/open models per agent without new SDKs) and a **direct OpenAI adapter** as a secondary path for anything OpenRouter doesn't cover well (e.g. specific OpenAI-only features). Both sit behind the same `LLMProvider` interface from §1.4 — agents never know which one is actually serving the call.
 - **DB:** PostgreSQL (Supabase) + pgvector for brand-report embeddings
 - **Queue/jobs:** Redis + a job runner (Celery, or BullMQ if the worker layer moves to Node/TS — pick one and don't mix, decide in Issue 5)
 - **Storage:** Supabase Storage / S3-compatible for logos, generated media
@@ -167,12 +167,14 @@ Closes #
 <!-- Required for any frontend or API-response change -->
 
 ## Checklist
-- [ ] Tests added/updated and passing locally
+- [ ] **Tests written for this change and passing locally** — a PR with no new/updated test coverage for new logic will not be approved, no exceptions
 - [ ] Migration included if the schema changed (`alembic revision --autogenerate`)
 - [ ] No secrets, API keys, or `.env` values committed
 - [ ] Docs/README updated if behavior or setup changed
 - [ ] I branched from `dev` and am targeting `dev` (not `main`)
 ```
+
+**The rule, stated plainly:** every PR must include the tests for what it built. CI enforces this two ways, not just a checkbox someone can tick without meaning it — see §2.7's coverage gate below. A PR that fails CI, or has no tests for new logic, does not get approved, no matter how confident anyone is that "it works." The test passing in CI *is* the proof it works — that's the whole point of automating this instead of trusting memory.
 
 ### 2.4 Issue template
 
@@ -192,6 +194,9 @@ labels: type:feature
 
 ## Files to create/modify
 
+## Tests required
+<!-- Every issue must name its own test cases before work starts, not after. What behavior does "done" actually mean, and how will CI prove it? -->
+
 ## How this affects overall development
 <!-- What depends on this, what breaks if it's wrong -->
 
@@ -201,6 +206,7 @@ labels: type:feature
 ```
 
 ## Acceptance Criteria
+- [ ] Tests written covering the behavior above and passing in CI
 - [ ]
 
 ## Branch
@@ -220,7 +226,9 @@ Duplicate as `bug.md` and `chore.md` with lighter sections.
 
 `M0 Foundations` · `M1 Core Backend` · `M2 Onboarding & Brand Intelligence` · `M3 Agent Pipeline` · `M4 Calendar & Scheduling` · `M5 Publishing` · `M6 Analytics` · `M7 Frontend & Hardening`
 
-### 2.7 CI workflows
+### 2.7 CI workflows — tests are a hard gate, not advisory
+
+Two things make testing non-negotiable instead of a polite request: branch protection requires the CI status check to be green before merge is even *possible* (§2.2 — GitHub disables the merge button, it's not a social norm), and CI itself fails the build if coverage drops, so a PR that adds code with no tests fails automatically even if someone forgets to check the box.
 
 `.github/workflows/backend-ci.yml`:
 ```yaml
@@ -228,7 +236,7 @@ name: backend-ci
 on:
   pull_request:
     branches: [dev, main]
-    paths: ["apps/api/**", "packages/agents/**", "migrations/**"]
+    paths: ["apps/api/**", "packages/agents/**", "packages/integrations/**", "migrations/**"]
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -248,7 +256,9 @@ jobs:
       - run: pip install -r apps/api/requirements.txt
       - run: alembic upgrade head
         env: { DATABASE_URL: postgresql://postgres:postgres@localhost:5432/raindeer_test }
-      - run: pytest apps/api/tests -v --cov
+      # --cov-fail-under is the actual enforcement: build goes red if coverage on changed code drops below the bar.
+      # Start at 70 in M0 while the test culture is forming, raise to 80+ once M1 lands.
+      - run: pytest apps/api/tests -v --cov=apps/api --cov=packages --cov-report=term-missing --cov-fail-under=70
         env: { DATABASE_URL: postgresql://postgres:postgres@localhost:5432/raindeer_test }
 ```
 
