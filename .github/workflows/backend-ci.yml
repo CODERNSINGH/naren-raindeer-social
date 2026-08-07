@@ -1,0 +1,26 @@
+name: backend-ci
+on:
+  pull_request:
+    branches: [dev, main]
+    paths: ["apps/api/**", "packages/agents/**", "migrations/**"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: raindeer_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r apps/api/requirements.txt
+      - run: alembic upgrade head
+        env: { DATABASE_URL: postgresql://postgres:postgres@localhost:5432/raindeer_test }
+      - run: pytest apps/api/tests -v --cov
+        env: { DATABASE_URL: postgresql://postgres:postgres@localhost:5432/raindeer_test }
