@@ -1,6 +1,8 @@
 # Raindeer Social — Engineering Blueprint
 
-This is the working blueprint for building `raindeer-social-org/raindeer-social` from an empty repo to a production system, broken into 36 tracked GitHub issues across 8 milestones. It covers system design first, then process (GitHub setup), then the issue roadmap.
+This is the working blueprint for building `raindeer-social-org/raindeer-social` from an empty repo to a production system, broken into 37 tracked GitHub issues across 8 milestones. It covers system design first, then process (GitHub setup), then the issue roadmap.
+
+**Revision note:** originally 36 issues. Added #7 — the provider abstraction layer — after deciding early that this is a heavily 3rd-party-dependent system (Tavily for search/research today, likely more vendors for image/video/social over time) and the codebase needs to treat every vendor as swappable from day one rather than hard-wired. Everything from #8 onward shifted by one.
 
 I can't create issues directly on GitHub from here — no GitHub connector is available in this chat, so no repo-write tools exist on my end. Everything below is written so you can paste it straight into GitHub Issues / Projects / `.github/` yourself. If you'd rather automate the creation, the `gh` CLI script at the bottom does all 36 in one pass.
 
@@ -66,13 +68,49 @@ Why LangGraph specifically: steps 1–4 are a normal DAG, but step 5 is a **dura
 
 Each agent is a separate, independently testable module in `packages/agents/`, with the Brand read-access layer as a shared dependency — this is what "Generation Engine has read access to the brand database" becomes concretely.
 
-### 1.4 A note on monolith vs microservices
+### 1.4 Provider abstraction layer — build this before you wire in the first 3rd party
+
+This is the change that matters most given the scale you're describing. You're not going to call Tavily. You're going to call *search*, and Tavily happens to be today's implementation. Same for the LLM, image gen, video gen, and every social platform API. If agent code imports the Tavily SDK directly, swapping it for Exa or Serper later means touching every place that called it — and re-testing all of it. A real startup foundation makes that a one-line env var change instead.
+
+**Pattern — one interface + adapter + registry per capability:**
+
+```
+packages/integrations/
+  search/
+    base.py          → SearchProvider interface (search(query) -> list[Result])
+    tavily.py         → TavilyProvider(SearchProvider)
+    serper.py         → (added later, same interface, zero changes elsewhere)
+  llm/
+    base.py           → LLMProvider interface
+    openai_provider.py, anthropic_provider.py, google_provider.py
+  image_gen/
+    base.py           → ImageProvider interface
+    fal_provider.py, openai_image_provider.py
+  video_gen/
+    base.py           → VideoProvider interface
+    kling_provider.py, runway_provider.py
+  social/
+    base.py           → SocialPublisher interface (publish(post) -> PublishResult)
+    linkedin_provider.py, x_provider.py, meta_provider.py
+  registry.py          → factory: reads an env var, returns the right adapter
+```
+
+**Rules that make this actually hold:**
+- Agent and business logic code only ever imports the interface (e.g. `SearchProvider`), **never** a vendor SDK directly. The adapter is the only file allowed to `import tavily`.
+- Provider selection is config-driven: `SEARCH_PROVIDER=tavily`, `IMAGE_PROVIDER=fal`, `VIDEO_PROVIDER=kling` in `.env`. Changing providers is changing one line, not shipping a PR that touches agents.
+- Every adapter call gets logged the same way `AgentRun` already logs agent calls — add an `IntegrationCall` table (provider, capability, latency, cost, success/failure, org_id). This is what tells you "Tavily failed 4% of calls last week" instead of finding out from a support ticket.
+- This is also what makes fallback chains possible later (try Tavily, fall back to Serper on timeout) without touching any calling code — the registry handles it, not the agent.
+- If agencies ever want to bring their own API keys per brand (common ask at scale), this is also the layer that makes that possible: an `integrations` table at the Brand/Organization level storing which provider is active per capability + a reference to a stored secret, not the interface changing.
+
+**Secrets, pragmatically:** `.env` locally + GitHub Actions encrypted secrets in CI is fine for now. Don't let "we need a real secrets manager" block early progress — but do put "migrate to a proper secrets manager (Doppler / AWS or GCP Secrets Manager)" on the M7 hardening pass explicitly, so it doesn't get forgotten once you're handling real customer OAuth tokens.
+
+### 1.5 A note on monolith vs microservices
 
 Given the scope you've described (36 issues, small team, long-term product), start as a **modular monolith**: one FastAPI service with clean router/domain boundaries (`/brands`, `/calendar`, `/posts`, `/agents`, `/publishing`, `/analytics`), one Postgres database, agents as an internal package. Split into real microservices later, only where you actually hit a scaling wall (the publishing/webhook layer and the analytics polling jobs are the most likely first candidates — they're natural background-worker boundaries).
 
 Splitting into microservices on day one, before you have load data, is the single most common way "very very big" projects stall in infrastructure instead of shipping product. Your instinct to be bulletproof about process (CI, reviews, tests) is the right one — apply that rigor to the monolith's internal boundaries instead of to premature service splits.
 
-### 1.5 Tech stack (confirming what you already have in mind)
+### 1.6 Tech stack (confirming what you already have in mind)
 
 - **Backend:** Python 3.11, FastAPI, SQLAlchemy + Alembic, Pydantic v2
 - **Agents:** LangGraph, provider-agnostic LLM client (start with one provider wired end-to-end, add routing later)
@@ -176,7 +214,7 @@ Duplicate as `bug.md` and `chore.md` with lighter sections.
 
 ### 2.5 Labels
 
-`type:feature | type:bug | type:chore` · `area:backend | area:frontend | area:agents | area:infra | area:docs` · `priority:P0 | P1 | P2 | P3` · `size:S | M | L`
+`type:feature | type:bug | type:chore` · `area:backend | area:frontend | area:agents | area:integrations | area:infra | area:docs` · `priority:P0 | P1 | P2 | P3` · `size:S | M | L`
 
 ### 2.6 Milestones (= phases below)
 
@@ -280,26 +318,26 @@ Grouped into 8 milestones. Phase 0 (issues 1–6) is fully specced below in your
 
 ---
 
-### M1 — Core Backend (issues 7–11)
-Auth + org/role model, Brand CRUD API, SocialAccount OAuth connection storage (encrypted tokens), media storage integration (Supabase Storage), and shared API conventions (error format, request validation, rate limiting middleware). *Depends on: M0.*
+### M1 — Core Backend + Integration Foundation (issues 7–12)
+**#7 is now the provider abstraction layer** (§1.4): `packages/integrations/` scaffolding, the `SearchProvider` interface + Tavily adapter as the first real implementation, the registry/factory pattern, and the `IntegrationCall` observability table. Everything after this — Onboarding's scraper, Research Engine, image/video gen, social publishing — builds on top of this instead of calling vendor SDKs directly. Then: Auth + org/role model, Brand CRUD API, SocialAccount OAuth connection storage (encrypted tokens, itself an adapter under `social/`), media storage integration (Supabase Storage), and shared API conventions (error format, validation, rate limiting). *Depends on: M0.*
 
-### M2 — Onboarding & Brand Intelligence (issues 12–16)
-Onboarding questionnaire flow, website/social web scraper service, the Onboarding Agent (LangGraph) that synthesizes the Brand Report from scraped data + answers, embedding + pgvector storage for RAG retrieval by later agents, and the brand PDF export. *Depends on: M1 (Brand model, storage).*
+### M2 — Onboarding & Brand Intelligence (issues 13–17)
+Onboarding questionnaire flow, the web research step (now: Tavily via the `SearchProvider` interface, not a hand-rolled scraper), the Onboarding Agent (LangGraph) that synthesizes the Brand Report from scraped/researched data + answers, embedding + pgvector storage for RAG retrieval by later agents, and the brand PDF export. *Depends on: M1.*
 
-### M3 — Agent Pipeline Core (issues 17–24)
-LangGraph orchestration + checkpoint persistence, Research Engine, Creative Engine, Generation Engine (text), image-generation integration, video/carousel-generation integration, Reviewer Engine, and the Human Review interrupt + UI actions (approve/edit/reject/reschedule). *Depends on: M2 (agents need Brand Report to read from).*
+### M3 — Agent Pipeline Core (issues 18–25)
+LangGraph orchestration + checkpoint persistence, Research Engine (built on `SearchProvider`), Creative Engine, Generation Engine (built on `LLMProvider`), image-generation integration (`ImageProvider`), video/carousel-generation integration (`VideoProvider`), Reviewer Engine, and the Human Review interrupt + UI actions (approve/edit/reject/reschedule). *Depends on: M2 (agents need Brand Report), M1 (provider layer).*
 
-### M4 — Calendar & Scheduling (issues 25–28)
+### M4 — Calendar & Scheduling (issues 26–29)
 ContentCalendarEvent model + CRUD API, calendar UI, auto-scheduling (optimal-time suggestion fed by Research Engine signals), and the trigger that kicks off the M3 pipeline ahead of an event's target date so it's sitting ready for one-button approval. *Depends on: M3.*
 
-### M5 — Publishing (issues 29–31)
-Platform publishing adapters (start with 1–2 platforms, e.g. LinkedIn + X, add Instagram/YouTube after), a publish queue with retry/failure handling, and status notifications (email/Slack) on failures or pending reviews. *Depends on: M1 (SocialAccount), M4.*
+### M5 — Publishing (issues 30–32)
+Platform publishing adapters under `social/` (start with 1–2 platforms, e.g. LinkedIn + X, add Instagram/YouTube after — each is just a new adapter against the existing `SocialPublisher` interface), a publish queue with retry/failure handling, and status notifications (email/Slack) on failures or pending reviews. *Depends on: M1 (SocialAccount + provider layer), M4.*
 
-### M6 — Analytics (issues 32–34)
+### M6 — Analytics (issues 33–35)
 Engagement-metrics polling jobs per platform, analytics storage + dashboard API, and AI-generated weekly report per brand. *Depends on: M5 (needs published posts to measure).*
 
-### M7 — Frontend & Hardening (issues 35–36)
-Core Next.js dashboard shell (auth, brand switcher, nav across all the above), and a full-system hardening pass: secrets audit, RBAC checks across every endpoint, rate-limit verification, and a load-test baseline. *Depends on: everything — this is the finishing pass, not a starting point.*
+### M7 — Frontend & Hardening (issues 36–37)
+Core Next.js dashboard shell (auth, brand switcher, nav across all the above), and a full-system hardening pass: secrets manager migration (§1.4), RBAC checks across every endpoint, rate-limit verification, and a load-test baseline. *Depends on: everything — this is the finishing pass, not a starting point.*
 
 *(Frontend screens for calendar, review queue, onboarding, and analytics get built alongside their respective backend milestones in practice — #35/36 is the shell + final integration pass, not "all frontend work happens last." I split it out here to keep the roadmap readable; when we spec M1–M2 in detail I'll fold the matching frontend issues in where they belong.)*
 
