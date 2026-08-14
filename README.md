@@ -4,6 +4,8 @@ AI-native social media management: brand intelligence, an agent pipeline that
 turns a calendar slot into a reviewed draft, and human-in-the-loop scheduling
 and publishing — built as a modular monolith, not a pile of microservices.
 
+hello i am here
+
 For the full system design, data model, agent pipeline, and issue roadmap,
 see [`raindeer-social-blueprint.md`](./raindeer-social-blueprint.md). This
 README covers what's here and how to get running; the blueprint covers why.
