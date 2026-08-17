@@ -86,6 +86,28 @@ Database schema and migrations land in Issue #4; the `docker compose up`
 one-command stack lands in Issue #5. Until then, run Postgres/Redis
 locally (e.g. via Homebrew services) as shown above.
 
+## CI & branch protection
+
+Every PR into `dev` or `main` runs through GitHub Actions before it can be
+merged:
+
+- **`backend-ci.yml`** — spins up Postgres (pgvector), runs Alembic
+  migrations, then `pytest` with `--cov-fail-under=70`. A PR that drops
+  backend coverage below 70% fails the build.
+- **`frontend-ci.yml`** — scoped to `apps/web/**`; runs `lint`, `test`, then
+  `build`, in that order, so a broken or untested frontend change never
+  reaches `build`.
+
+Branch protection enforces the rest:
+
+- **`main`** — PRs only, 2 required approvals, CI must be green, branch
+  must be up to date, no direct pushes or force-pushes.
+- **`dev`** — PRs only, 1 required approval, same CI and up-to-date
+  requirements, no direct pushes or force-pushes.
+
+Together these make "tests pass and reviewers approved" a hard gate, not a
+convention — the merge button is unavailable until both are true.
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for branch naming, PR process,
