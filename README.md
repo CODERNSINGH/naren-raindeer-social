@@ -108,6 +108,31 @@ Branch protection enforces the rest:
 Together these make "tests pass and reviewers approved" a hard gate, not a
 convention — the merge button is unavailable until both are true.
 
+## Issue & PR workflow
+
+Work is proposed and tracked consistently so the team can move in parallel
+without a standup every hour:
+
+- **Issue templates** (`.github/ISSUE_TEMPLATE/{feature,bug,chore}.md`) —
+  every issue captures Why, What, files touched, how to test, acceptance
+  criteria, branch name, and dependencies.
+- **PR template** (`.github/PULL_REQUEST_TEMPLATE.md`) — every PR requires
+  a linked issue, Why, What changed, how it was tested, screenshots for
+  any visual/API change, and a review checklist.
+- **Labels** — `type:feature | type:bug | type:chore`,
+  `area:backend | frontend | agents | integrations | infra | docs`,
+  `priority:P0–P3`, `size:S | M | L`.
+- **Milestones** — `M0 Foundations`, `M1 Core Backend`,
+  `M2 Onboarding & Brand Intelligence`, `M3 Agent Pipeline`,
+  `M4 Calendar & Scheduling`, `M5 Publishing`, `M6 Analytics`,
+  `M7 Frontend & Hardening`.
+- **Projects board** — `Backlog → Ready → In Progress → In Review → Done`,
+  with items auto-added on issue creation and auto-moved to `Done` on PR
+  merge.
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full branch strategy,
+commit style, and review/merge rules.
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for branch naming, PR process,
