@@ -8,7 +8,9 @@ from sqlalchemy import engine_from_config, pool
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from apps.api import models  # noqa: E402, F401  (registers models on Base.metadata)
 from apps.api.config import get_settings  # noqa: E402
+from apps.api.config.database import Base  # noqa: E402
 
 config = context.config
 
@@ -18,8 +20,7 @@ if config.config_file_name is not None:
 database_url = os.environ.get("DATABASE_URL", get_settings().database_url)
 config.set_main_option("sqlalchemy.url", database_url)
 
-# Populated with the shared declarative Base once models land (Issue #4).
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

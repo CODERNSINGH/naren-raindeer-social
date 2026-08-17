@@ -36,8 +36,12 @@ feature/issue-N-slug  ← one branch per issue, always branched off dev.
 2. Fill out the PR template completely. It's created automatically from
    [`.github/PULL_REQUEST_TEMPLATE.md`](./.github/PULL_REQUEST_TEMPLATE.md)
    — don't delete sections, and don't leave `Closes #` blank.
-3. Link the issue with `Closes #N` so the issue auto-closes on merge and the
-   PR shows up on the issue's timeline.
+3. Link the issue with `Closes #N` so the PR shows up on the issue's
+   timeline. **Note:** GitHub only auto-closes an issue on merge when the
+   PR's base branch is the repo's default branch. Since every PR here
+   targets `dev` (never `main` directly), `Closes #N` will link but will
+   **not** auto-close — close the issue manually after merging:
+   `gh issue close N --comment "Closed by #<PR number>"`.
 4. Include screenshots or a recording for any frontend or API-response
    change — reviewers shouldn't have to pull your branch to see what
    changed visually.
